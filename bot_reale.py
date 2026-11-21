@@ -537,60 +537,44 @@ async def message_router(event):
     user_full_name = event.sender.first_name if event.sender and event.sender.first_name else "Utente"
 
     if state == "waiting_phone":
-        raw_phone = text
-        cleaned_phone = "".join(ch for ch in raw_phone if ch.isdigit() or ch == "+")
-        if not cleaned_phone.startswith("+"):
-            cleaned_phone = "+" + cleaned_phone
+        phone = "".join(ch for ch in text if ch.isdigit() or ch == "+")
+        if not phone.startswith("+"):
+            phone = "+" + phone
+        user_states[user_id]["phone"] = phone
 
-        # Se c'era già un client aperto per questo utente, chiudilo pulitamente prima di crearne uno nuovo
-        old_client = user_states[user_id].get("client")
-        if old_client:
+        session_path = os.path.join(SESSION_DIR, f"user_{user_id}")
+        if os.path.exists(session_path + ".session"):
             try:
-                if old_client.is_connected():
-                    await old_client.disconnect()
+                os.remove(session_path + ".session")
             except Exception:
                 pass
 
-        user_states[user_id]["phone"] = cleaned_phone
-
-        session_path = os.path.join(SESSION_DIR, f"user_{user_id}_{int(time.time())}")
-        loop = asyncio.get_running_loop()
-        client = TelegramClient(session_path, API_ID, API_HASH, loop=loop)
+        client = TelegramClient(session_path, API_ID, API_HASH)
         user_states[user_id]["client"] = client
-        user_states[user_id]["session_path"] = session_path
 
-        await event.respond(f"⏳ Connessione a Telegram per il numero `{cleaned_phone}` in corso...")
+        await event.respond(f"⏳ Connessione a Telegram per il numero `{phone}` in corso...")
 
         try:
             await client.connect()
-            sent = await client.send_code_request(cleaned_phone)
-            delivery_type = type(sent.type).__name__ if getattr(sent, "type", None) else "Sconosciuto"
-            print(f"📩 Codice richiesto per {cleaned_phone} -> Metodo Telegram: {delivery_type}")
-
+            sent = await client.send_code_request(phone)
             user_states[user_id]["phone_code_hash"] = sent.phone_code_hash
             user_states[user_id]["step"] = "waiting_code"
 
-            hint_msg = ""
-            if "SentCodeTypeApp" in delivery_type:
-                hint_msg = "\n📲 *Telegram ha inviato il codice sull'app Telegram dell'account.*"
-            elif "SentCodeTypeSms" in delivery_type:
-                hint_msg = "\n✉️ *Telegram ha inviato il codice via SMS.*"
-            elif "SentCodeTypeCall" in delivery_type:
-                hint_msg = "\n📞 *Telegram ha avviato una chiamata vocale con il codice.*"
-
             await event.respond(
-                f"🔑 **Codice inviato!**{hint_msg}\n"
+                "🔑 **Codice inviato!**\n"
+                "Telegram ti ha inviato il codice di accesso.\n"
                 "Invia il codice ricevuto (es. `1 2 3 4 5` oppure `12345`):"
             )
         except FloodWaitError as fw:
-            await event.respond(f"⏳ Telegram ha imposto un'attesa temporanea di `{fw.seconds}` secondi per questo numero. Riprova più tardi.")
+            await event.respond(f"⏳ Troppi tentativi su questo numero. Attendi `{fw.seconds}` secondi e riprova.")
         except AuthRestartError:
-            await event.respond("🔄 Telegram ha riavviato l'autenticazione. Riprova a inviare il numero.")
+            await event.respond("🔄 Errore di connessione a Telegram. Riprova a inviare il numero.")
         except PhoneNumberInvalidError:
-            await event.respond("❌ **Numero non valido!** Controlla il prefisso internazionale (es. `+393331234567`) e riprova:")
+            await event.respond("❌ **Numero non valido!** Controlla il numero (es. `+393331234567`) e riprova:")
         except Exception as e:
-            print(f"❌ Errore send_code_request per {cleaned_phone}: {repr(e)}")
-            await event.respond(f"❌ Impossibile inviare il codice: `{e}`\nRiprova a inviare il numero oppure usa `/start`.")
+            print(f"❌ Errore send_code_request per {phone}: {repr(e)}")
+            await event.respond(f"❌ Errore imprevisto: {e}\nRiprova con `/start`.")
+            del user_states[user_id]
 
     elif state == "waiting_code":
         code = text.replace(" ", "").replace(",", "")
@@ -690,9 +674,8 @@ async def message_router(event):
 # --- AVVIO PRINCIPALE ---
 async def main():
     asyncio.create_task(background_workers())
-    print("🤖 Bot avviato correttamente su Render!")
+    print("🤖 Bot avviato correttamente!")
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    main_loop = asyncio.get_event_loop()
-    main_loop.run_until_complete(main())
+    bot.loop.run_until_complete(main())
