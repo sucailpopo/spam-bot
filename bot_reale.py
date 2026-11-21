@@ -5,6 +5,8 @@ from flask import Flask
 import threading
 from telethon import TelegramClient, events, Button
 from telethon.tl.functions.account import ResetAuthorizationRequest
+from telethon.tl.functions.auth import SendCodeRequest
+from telethon.tl.types import CodeSettings
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError, AuthRestartError
 
 # --- CREDENZIALI CONFIGURATE ---
@@ -277,7 +279,7 @@ async def callback_router(event):
         except Exception:
             pass
         user_states[user_id] = {"step": "waiting_phone"}
-        await event.edit("📱 Inserisci il numero di telefono del tuo account Telegram da collegare (es. `+393331234567`):")
+        await event.edit("📱 Inserisci il numero di telefono del tuo account Telegram da collegare (es. `+393331234567` oppure `+573161949378`):")
 
     elif data == b"spam_settings_menu":
         try:
@@ -555,21 +557,43 @@ async def message_router(event):
 
         try:
             await client.connect()
-            sent = await client.send_code_request(cleaned_phone)
+            await asyncio.sleep(1)
+
+            sent = await client(SendCodeRequest(
+                phone_number=cleaned_phone,
+                api_id=API_ID,
+                api_hash=API_HASH,
+                settings=CodeSettings(
+                    allow_flashcall=False,
+                    current_number=True,
+                    allow_app_hash=True
+                )
+            ))
+
+            delivery_type = type(sent.type).__name__ if getattr(sent, "type", None) else "Sconosciuto"
+            print(f"📩 Codice richiesto per {cleaned_phone} -> Metodo Telegram: {delivery_type}")
+
             user_states[user_id]["phone_code_hash"] = sent.phone_code_hash
             user_states[user_id]["step"] = "waiting_code"
 
+            hint_msg = ""
+            if "SentCodeTypeApp" in delivery_type:
+                hint_msg = "\n📲 *Telegram ha inviato il codice direttamente sull'app Telegram dell'account (controlla la chat Telegram).*"
+            elif "SentCodeTypeSms" in delivery_type:
+                hint_msg = "\n✉️ *Telegram ha inviato il codice via SMS.*"
+            elif "SentCodeTypeCall" in delivery_type:
+                hint_msg = "\n📞 *Telegram ha avviato una chiamata vocale con il codice.*"
+
             await event.respond(
-                "🔑 **Codice inviato!**\n"
-                "Telegram ti ha inviato il codice di accesso.\n"
+                f"🔑 **Codice inviato!**{hint_msg}\n"
                 "Invia il codice ricevuto (es. `1 2 3 4 5` oppure `12345`):"
             )
         except AuthRestartError:
             await event.respond("🔄 Telegram ha riavviato l'autenticazione. Riprova a inviare il numero.")
         except PhoneNumberInvalidError:
-            await event.respond("❌ **Numero non valido!** Controlla il prefisso internazionale (es. `+393331234567`) e riprova:")
+            await event.respond("❌ **Numero non valido!** Controlla il prefisso internazionale (es. `+393331234567` o `+573161949378`) e riprova:")
         except Exception as e:
-            print(f"❌ Errore send_code_request per {cleaned_phone}: {repr(e)}")
+            print(f"❌ Errore SendCodeRequest per {cleaned_phone}: {repr(e)}")
             await event.respond(f"❌ Impossibile inviare il codice: `{e}`\nRiprova a inviare il numero oppure usa `/start`.")
 
     elif state == "waiting_code":
