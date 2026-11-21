@@ -10,7 +10,7 @@ from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, P
 # --- CREDENZIALI CONFIGURATE ---
 API_ID = 32531630
 API_HASH = "ed0ce5e3de48ef0f55582cbf5f2b3a7c"
-BOT_TOKEN = "9141462955:AAEY0YM2Wh7IhrBwXYeSClQZR1_3j_gZNLk"
+BOT_TOKEN = "9104042803:AAFe1goVzHUY4oyA3iV2_FoRMESuf3FzKPI"
 ADMIN_ID = 8886429641
 
 SESSION_DIR = "user_sessions"
