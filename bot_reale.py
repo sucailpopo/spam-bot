@@ -669,4 +669,3 @@ async def main():
 
 if __name__ == '__main__':
     bot.loop.run_until_complete(main())
-
